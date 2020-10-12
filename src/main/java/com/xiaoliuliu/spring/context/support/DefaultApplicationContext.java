@@ -1,6 +1,11 @@
 package com.xiaoliuliu.spring.context.support;
 
 import com.xiaoliuliu.spring.annotation.Autowired;
+import com.xiaoliuliu.spring.aop.AopProxy;
+import com.xiaoliuliu.spring.aop.CglibAopProxy;
+import com.xiaoliuliu.spring.aop.JdkDynamicAopProxy;
+import com.xiaoliuliu.spring.aop.config.AopConfig;
+import com.xiaoliuliu.spring.aop.support.AdvisedSupport;
 import com.xiaoliuliu.spring.beans.BeanWrapper;
 import com.xiaoliuliu.spring.beans.config.BeanDefinition;
 import com.xiaoliuliu.spring.beans.support.BeanDefinitionReader;
@@ -164,16 +169,60 @@ public class DefaultApplicationContext implements ApplicationContext {
 
     private Object instantiateBean(String beanName, BeanDefinition beanDefinition) {
         //1、拿到要实例化的对象的类名
-        String beanClassName = beanDefinition.getBeanClassName();
+        String className = beanDefinition.getBeanClassName();
+
         //2、反射实例化，得到一个对象
         Object instance = null;
         try {
-            Class<?> aClass = Class.forName(beanClassName);
-            instance = aClass.newInstance();
+            Class<?> clazz = Class.forName(className);
+            instance = clazz.newInstance();
+
+            //############填充如下代码###############
+            AdvisedSupport config = getAopConfig();
+            config.setTargetClass(clazz);
+            config.setTarget(instance);
+
+            //符合PointCut的规则的话，将创建代理对象
+            if(config.pointCutMatch()) {
+                instance = createProxy(config).getProxy();
+            }
+            //#############填充完毕##############
+
         } catch (Exception e) {
             e.printStackTrace();
         }
+
         return instance;
+    }
+
+    /**
+     *  @author: 小六六
+     *  @Date: 2020/10/12 11:02
+     *  @Description: 有2种生成代理的方式，一个是jdk 一个是cglib
+     */
+    private AopProxy createProxy(AdvisedSupport config) {
+        Class targetClass = config.getTargetClass();
+        //如果接口数量 > 0则使用JDK原生动态代理
+        if(targetClass.getInterfaces().length > 0){
+            return new JdkDynamicAopProxy(config);
+        }
+        return new CglibAopProxy(config);
+    }
+
+    /**
+     *  @author: 小六六
+     *  @Date: 2020/10/12 11:00
+     *  @Description: 此方式是通过配置文件来封装config 还有也可以通过注解
+     */
+    private AdvisedSupport getAopConfig() {
+        AopConfig config = new AopConfig();
+        config.setPointCut(this.reader.getConfig().getProperty("pointCut"));
+        config.setAspectClass(this.reader.getConfig().getProperty("aspectClass"));
+        config.setAspectBefore(this.reader.getConfig().getProperty("aspectBefore"));
+        config.setAspectAfter(this.reader.getConfig().getProperty("aspectAfter"));
+        config.setAspectAfterThrow(this.reader.getConfig().getProperty("aspectAfterThrow"));
+        config.setAspectAfterThrowingName(this.reader.getConfig().getProperty("aspectAfterThrowingName"));
+        return new AdvisedSupport(config);
     }
 
     private Object getSingleton(String beanName) {
